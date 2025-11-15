@@ -32,7 +32,7 @@
     "@modelcontextprotocol/sdk": "^0.5.0",
     "dotenv": "^16.4.5",
     "imap": "^0.8.19",
-    "mailparser": "^3.7.1",
+    "mailparser": "^3.9.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
