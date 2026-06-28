@@ -1,9 +1,4 @@
 import {
-  SearchEmailsArgs,
-  GetEmailArgs,
-  ListFoldersArgs,
-  GetRecentEmailsArgs,
-  MarkAsReadArgs,
   SearchEmailsSchema,
   GetEmailSchema,
   ListFoldersSchema,
@@ -15,7 +10,7 @@ import { IMAPManager } from '../services/imap-manager.js';
 export class EmailTools {
   constructor(private imapManager: IMAPManager) {}
 
-  async searchEmails(args: SearchEmailsArgs) {
+  async searchEmails(args: unknown) {
     try {
       const validatedArgs = SearchEmailsSchema.parse(args);
       const emails = await this.imapManager.searchEmails(validatedArgs);
@@ -41,7 +36,7 @@ export class EmailTools {
     }
   }
 
-  async getEmail(args: GetEmailArgs) {
+  async getEmail(args: unknown) {
     try {
       const validatedArgs = GetEmailSchema.parse(args);
       const email = await this.imapManager.getEmail(validatedArgs.messageId, validatedArgs.folder);
@@ -78,7 +73,7 @@ export class EmailTools {
     }
   }
 
-  async listFolders(args: ListFoldersArgs = {}) {
+  async listFolders(args: unknown = {}) {
     try {
       const validatedArgs = ListFoldersSchema.parse(args);
       const folders = await this.imapManager.getFolders();
@@ -119,7 +114,7 @@ export class EmailTools {
     }
   }
 
-  async getRecentEmails(args: GetRecentEmailsArgs = {}) {
+  async getRecentEmails(args: unknown = {}) {
     try {
       const validatedArgs = GetRecentEmailsSchema.parse(args);
       const emails = await this.imapManager.getRecentEmails(
@@ -160,7 +155,7 @@ export class EmailTools {
     }
   }
 
-  async markAsRead(args: MarkAsReadArgs) {
+  async markAsRead(args: unknown) {
     try {
       const validatedArgs = MarkAsReadSchema.parse(args);
       const success = await this.imapManager.markAsRead(

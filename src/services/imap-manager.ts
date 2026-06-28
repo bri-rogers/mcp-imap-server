@@ -1,9 +1,10 @@
 import Imap from 'imap';
-import { simpleParser } from 'mailparser';
+import { simpleParser, AddressObject } from 'mailparser';
 import { EventEmitter } from 'events';
 import {
   IMAPConfig,
   EmailMessage,
+  EmailAddress,
   EmailFolder,
   SearchCriteria,
   IMAPError,
@@ -16,7 +17,7 @@ export class IMAPManager extends EventEmitter {
   private connection: Imap | null = null;
   private isConnected = false;
   private isConnecting = false;
-  private currentFolder = 'INBOX';
+  private currentFolder: string | null = null;
   private connectionTimeout: NodeJS.Timeout | null = null;
 
   constructor(private config: IMAPConfig) {
@@ -126,6 +127,7 @@ export class IMAPManager extends EventEmitter {
     this.isConnected = false;
     this.isConnecting = false;
     this.connection = null;
+    this.currentFolder = null;
   }
 
   private async ensureConnected(): Promise<void> {
@@ -172,7 +174,7 @@ export class IMAPManager extends EventEmitter {
   private parseBoxes(boxes: any, prefix = ''): EmailFolder[] {
     const folders: EmailFolder[] = [];
     
-    for (const [name, box] of Object.entries(boxes)) {
+    for (const [name, box] of Object.entries(boxes) as [string, any][]) {
       const fullName = prefix ? `${prefix}${box.delimiter}${name}` : name;
       
       const folder: EmailFolder = {
@@ -330,6 +332,21 @@ export class IMAPManager extends EventEmitter {
     });
   }
 
+  private extractAddresses(
+    addr: AddressObject | AddressObject[] | undefined
+  ): EmailAddress[] {
+    if (!addr) {
+      return [];
+    }
+    const objects = Array.isArray(addr) ? addr : [addr];
+    return objects.flatMap(obj =>
+      (obj.value || []).map(v => ({
+        name: v.name || undefined,
+        address: v.address || ''
+      }))
+    );
+  }
+
   private async fetchMessages(uids: number[]): Promise<EmailMessage[]> {
     return new Promise((resolve, reject) => {
       const messages: EmailMessage[] = [];
@@ -364,18 +381,20 @@ export class IMAPManager extends EventEmitter {
               id: uid.toString(),
               uid,
               subject: parsed.subject,
-              from: parsed.from?.value || [],
-              to: parsed.to?.value || [],
-              cc: parsed.cc?.value || [],
-              bcc: parsed.bcc?.value || [],
+              from: this.extractAddresses(parsed.from),
+              to: this.extractAddresses(parsed.to),
+              cc: this.extractAddresses(parsed.cc),
+              bcc: this.extractAddresses(parsed.bcc),
               date: parsed.date,
               flags,
               size,
               text: parsed.text,
-              html: parsed.html,
+              html: parsed.html || undefined,
               messageId: parsed.messageId,
               inReplyTo: parsed.inReplyTo,
-              references: parsed.references,
+              references: parsed.references
+                ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references])
+                : undefined,
               headers: parsed.headers as any,
               attachments: parsed.attachments?.map(att => ({
                 contentType: att.contentType,
