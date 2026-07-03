@@ -350,6 +350,9 @@ export class IMAPManager extends EventEmitter {
   private async fetchMessages(uids: number[]): Promise<EmailMessage[]> {
     return new Promise((resolve, reject) => {
       const messages: EmailMessage[] = [];
+      // Parsing is async (simpleParser). Track each parse promise so we can
+      // await all of them before resolving — see fetch 'end' below.
+      const pending: Promise<void>[] = [];
       const fetch = this.connection!.fetch(uids, {
         bodies: '',
         struct: true
@@ -373,42 +376,49 @@ export class IMAPManager extends EventEmitter {
           size = attrs.size;
         });
 
-        msg.once('end', async () => {
-          try {
-            const parsed = await simpleParser(buffer);
-            
-            const emailMessage: EmailMessage = {
-              id: uid.toString(),
-              uid,
-              subject: parsed.subject,
-              from: this.extractAddresses(parsed.from),
-              to: this.extractAddresses(parsed.to),
-              cc: this.extractAddresses(parsed.cc),
-              bcc: this.extractAddresses(parsed.bcc),
-              date: parsed.date,
-              flags,
-              size,
-              text: parsed.text,
-              html: parsed.html || undefined,
-              messageId: parsed.messageId,
-              inReplyTo: parsed.inReplyTo,
-              references: parsed.references
-                ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references])
-                : undefined,
-              headers: parsed.headers as any,
-              attachments: parsed.attachments?.map(att => ({
-                contentType: att.contentType,
-                filename: att.filename,
-                size: att.size,
-                contentId: att.contentId,
-                content: att.content
-              })) || []
-            };
+        msg.once('end', () => {
+          // Capture the parse promise synchronously (msg 'end' always fires
+          // before fetch 'end'), so `pending` is fully populated by the time
+          // we await it. Previously this handler was async and fetch 'end'
+          // resolved before simpleParser() finished — dropping single-message
+          // fetches entirely and losing a few from each batch.
+          const parsePromise = simpleParser(buffer)
+            .then((parsed) => {
+              const emailMessage: EmailMessage = {
+                id: uid.toString(),
+                uid,
+                subject: parsed.subject,
+                from: this.extractAddresses(parsed.from),
+                to: this.extractAddresses(parsed.to),
+                cc: this.extractAddresses(parsed.cc),
+                bcc: this.extractAddresses(parsed.bcc),
+                date: parsed.date,
+                flags,
+                size,
+                text: parsed.text,
+                html: parsed.html || undefined,
+                messageId: parsed.messageId,
+                inReplyTo: parsed.inReplyTo,
+                references: parsed.references
+                  ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references])
+                  : undefined,
+                headers: parsed.headers as any,
+                attachments: parsed.attachments?.map(att => ({
+                  contentType: att.contentType,
+                  filename: att.filename,
+                  size: att.size,
+                  contentId: att.contentId,
+                  content: att.content
+                })) || []
+              };
 
-            messages.push(emailMessage);
-          } catch (err) {
-            console.error('Failed to parse email:', err);
-          }
+              messages.push(emailMessage);
+            })
+            .catch((err) => {
+              console.error('Failed to parse email:', err);
+            });
+
+          pending.push(parsePromise);
         });
       });
 
@@ -417,9 +427,12 @@ export class IMAPManager extends EventEmitter {
       });
 
       fetch.once('end', () => {
-        // Sort by UID to maintain order
-        messages.sort((a, b) => a.uid - b.uid);
-        resolve(messages);
+        // Wait for every in-flight parse to finish before resolving.
+        Promise.all(pending).then(() => {
+          // Sort by UID to maintain order
+          messages.sort((a, b) => a.uid - b.uid);
+          resolve(messages);
+        });
       });
     });
   }
